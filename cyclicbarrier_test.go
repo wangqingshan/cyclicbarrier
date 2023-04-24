@@ -3,10 +3,14 @@ package cyclicbarrier
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/marusama/cyclicbarrier"
 )
 
 func checkBarrier(t *testing.T, b CyclicBarrier,
@@ -350,4 +354,48 @@ func TestAwaitTooMuchGoroutines(t *testing.T) {
 	if panicCount == 0 {
 		t.Error("barrier must panic when await is called from too much goroutines")
 	}
+}
+
+func TestExmple1(t *testing.T) {
+	barrier := New(3)
+	for i := 0; i < 3; i++ {
+		go func(id int) {
+			log.Printf("start: %v", id)
+			barrier.Await(context.Background()) // 这里会一直等待，直到3个groutine 都走到这里
+			log.Printf("finish: %v", id)
+		}(i)
+	}
+
+	select {}
+}
+
+func TestExmple2(t *testing.T) {
+	cnt := 0
+	b := cyclicbarrier.NewWithAction(10, func() error {
+		cnt++ // 定义一个回调函数，让cnt自增，barrier放行一次，该回调执行一次
+		return nil
+	})
+
+	wg := sync.WaitGroup{}
+	for i := 0; i < 10; i++ { // create 10 goroutines (the same count as barrier parties)
+		wg.Add(1)
+		go func() {
+			for j := 0; j < 5; j++ {
+
+				// do some hard work 5 times
+				time.Sleep(100 * time.Millisecond)
+
+				err := b.Await(context.TODO()) // ..and wait for other parties on the barrier. 即所有的parties都走到这里，才放行，下一轮
+				// Last arrived goroutine will do the barrier action
+				// and then pass all other goroutines to the next round
+				if err != nil {
+					panic(err)
+				}
+			}
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+	fmt.Println(cnt) // cnt = 5, it means that the barrier was passed 5 times
 }

@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Package cyclicbarrier provides an implementation of Cyclic Barrier primitive.
-package cyclicbarrier // import "github.com/marusama/cyclicbarrier"
+package cyclicbarrier //
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 // A CyclicBarrier supports an optional Runnable command that is run once per barrier point,
 // after the last goroutine in the party arrives, but before any goroutines are released.
 // This barrier action is useful for updating shared-state before any of the parties continue.
-type CyclicBarrier interface {
+type CyclicBarrier interface { // 定义接口
 	// Await waits until all parties have invoked await on this barrier.
 	// If the barrier is reset while any goroutine is waiting, or if the barrier is broken when await is invoked,
 	// or while any goroutine is waiting, then ErrBrokenBarrier is returned.
@@ -28,11 +28,11 @@ type CyclicBarrier interface {
 	// If the current goroutine is the last goroutine to arrive, and a non-nil barrier action was supplied in the constructor,
 	// then the current goroutine runs the action before allowing the other goroutines to continue.
 	// If an error occurs during the barrier action then that error will be returned and the barrier is placed in the broken state.
-	Await(ctx context.Context) error
+	Await(ctx context.Context) error // 核心方法：线程等待
 
 	// Reset resets the barrier to its initial state.
 	// If any parties are currently waiting at the barrier, they will return with a ErrBrokenBarrier.
-	Reset()
+	Reset() // 核心方法：资源重置
 
 	// GetNumberWaiting returns the number of parties currently waiting at the barrier.
 	GetNumberWaiting() int
@@ -52,9 +52,9 @@ var (
 	ErrBrokenBarrier = errors.New("broken barrier")
 )
 
-// round
+// round 这里定义一个轮次的结构体。
 type round struct {
-	count    int           // count of goroutines for this roundtrip
+	count    int           // 参与线程数，count of goroutines for this roundtrip
 	waitCh   chan struct{} // wait channel for this roundtrip
 	brokeCh  chan struct{} // channel for isBroken broadcast
 	isBroken bool          // is barrier broken
@@ -62,15 +62,15 @@ type round struct {
 
 // cyclicBarrier impl CyclicBarrier intf
 type cyclicBarrier struct {
-	parties       int
-	barrierAction func() error
+	parties       int          // 参与数量
+	barrierAction func() error // 回调函数，栅栏放行后触发。
 
-	lock  sync.RWMutex
-	round *round
+	lock  sync.RWMutex // 读写锁
+	round *round       // 轮次
 }
 
 // New initializes a new instance of the CyclicBarrier, specifying the number of parties.
-func New(parties int) CyclicBarrier {
+func New(parties int) CyclicBarrier { // 创建函数
 	if parties <= 0 {
 		panic("parties must be positive number")
 	}
@@ -86,7 +86,7 @@ func New(parties int) CyclicBarrier {
 
 // NewWithAction initializes a new instance of the CyclicBarrier,
 // specifying the number of parties and the barrier action.
-func NewWithAction(parties int, barrierAction func() error) CyclicBarrier {
+func NewWithAction(parties int, barrierAction func() error) CyclicBarrier { // 和上面的New函数一样，只是带回调
 	if parties <= 0 {
 		panic("parties must be positive number")
 	}
@@ -102,6 +102,7 @@ func NewWithAction(parties int, barrierAction func() error) CyclicBarrier {
 }
 
 func (b *cyclicBarrier) Await(ctx context.Context) error {
+	// 初始一个done的channel，用来接受ctx done的信号
 	var (
 		ctxDoneCh <-chan struct{}
 	)
@@ -112,7 +113,7 @@ func (b *cyclicBarrier) Await(ctx context.Context) error {
 	// check if context is done
 	select {
 	case <-ctxDoneCh:
-		return ctx.Err()
+		return ctx.Err() // 如果context已经done了，直接抛err
 	default:
 	}
 
@@ -141,24 +142,24 @@ func (b *cyclicBarrier) Await(ctx context.Context) error {
 	if count < b.parties {
 		// wait other parties
 		select {
-		case <-waitCh:
+		case <-waitCh: // 阻塞，直到信号到来
 			return nil
-		case <-brokeCh:
+		case <-brokeCh: // 如果break了，直接返回错误
 			return ErrBrokenBarrier
-		case <-ctxDoneCh:
-			b.breakBarrier(true)
-			return ctx.Err()
+		case <-ctxDoneCh: // context的done信号来了，直接break掉，防止其他的groutine还在阻塞。
+			b.breakBarrier(true) // 破坏屏障
+			return ctx.Err()     // 返回context的done err
 		}
 	} else {
 		// we are last, run the barrier action and reset the barrier
-		if b.barrierAction != nil {
+		if b.barrierAction != nil { // 回调函数不为空，就回调
 			err := b.barrierAction()
 			if err != nil {
 				b.breakBarrier(true)
 				return err
 			}
 		}
-		b.reset(true)
+		b.reset(true) // barrier重置
 		return nil
 	}
 }
@@ -177,6 +178,7 @@ func (b *cyclicBarrier) breakBarrier(needLock bool) {
 	}
 }
 
+// 重置，原理就是关闭旧的chan, 新创建chan
 func (b *cyclicBarrier) reset(safe bool) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
